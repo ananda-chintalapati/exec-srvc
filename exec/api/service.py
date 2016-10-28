@@ -60,16 +60,45 @@ class RallyExecutor(object):
                                stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE)
 
-    def triggerRally(self):
+    def _parse_rally_options(self, filter, param):
+        opts = "--"
+
+        if 'project' == filter:
+            opts = opts + 'set'
+        else if 'testsuite' == filter:
+            opts = opts + 'regex'
+
+        opts = opts + ' ' + param
+        return opts
+
+    def _build_rally_cmd(self, action, filter, param, deployment_id):
+        if action == 'create':
+            return 'rally deployment create --fromenv --name=rally-auto'
+        elif action == 'deploy_check':
+            return 'rally deployment check'
+        elif action == 'install':
+            return 'rally verify install --deployment %s' % deployment_id
+        elif action == 'verify':
+            cmd = 'rally verify start --deployment %s' % deployment_id
+            cmd = cmd + _parse_rally_options(filter, param)
+            return cmd
+        elif action == 'uninstall'
+            return 'rally verify uninstall --deployment %s' % deployment_id
+        elif action == 'results'
+            return 'rally verify results --json --deployment %s' % deployment_id
+        elif action == 'destroy'
+            return 'rally deployment destroy --deployment %s ' % deployment_id
+
+    def trigger_rally(self):
         pass
 
-    def _validateInputRequest(self):
+    def _validate_iput_request(self):
         pass
 
-    def getRallyExecutions(self):
+    def get_rally_executions(self):
         pass
 
-    def getRallyExecutionStatus(self, execution_id):
+    def get_rally_executionStatus(self, execution_id):
         pass
 
 
