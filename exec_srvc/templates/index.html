@@ -1,0 +1,34 @@
+<html>
+    <form action="jenkins/ui/trigger" method="Post">
+        <h2> Jenkins Data </h2>
+
+        Host: <input type="text" size=20 name="host" value="192.168.20.137"/> <br/>
+        Port: <input type="text" size=20 name="port" value="9090"/> <br/>
+        User: <input type="text" size=50 name="user" value="cnet"/> <br/>
+        Password: <input type="password" size=50 name="passwd" value="openstack"/> <br/>
+        Auth Token: <input type="text" size=50 name="auth_token" value="sample"/> <br/>
+        Tool: <input name="tool" size=50 value="rally" /> <br/>
+        Action: <input type="text" size=20 value="full" name="action"/> <br/>
+
+        <h2> Tool Data </h2>
+
+        Host: <input type="text" size=20 name="host_ip" value="192.168.20.137"/> <br/>
+        User: <input type="text" size=50 name="rally_user" value="root"/> <br/>
+        Password: <input type="password" size=50 name="rally_pass" value="openstack"/> <br/>
+        Test Target: <input type="text" size=50 name="test_target" value="TestSuite"/> <br/>
+        Test Target Value: <input type="text" size=50 name="test_target_value" value="tempest.api.compute.admin.test_flavors.FlavorsAdminTestJSON.test_create_flavor_using_string_ram"/> <br/>
+        Influx DB URL: <input type="text" size=50 name="influx_url" value="http://192.168.20.137:8086"/> <br/>
+        Influx DB: <input type="text" size=50 name="influx_db" value="jenkins_db"/> <br/>
+
+        <h2> Cloud Data </h2>
+
+        URL: <input type="text" size=20 name="auth_url" value="http://192.168.20.4:5000/v3"/> <br/>
+        User: <input type="text" size=50 name="cloud_user" value="admin"/> <br/>
+        Password: <input type="password" size=50 name="cloud_pass" value="openstack"/> <br/>
+        Project Name: <input type="text" size=50 name="project_name" value="admin"/> <br/>
+        Test Name: <input type="text" size=50 name="test_name" value="liberty_1"/> <br/>
+        Release: <input type="text" size=50 name="release" value="liberty" /> <br/>
+
+        <input type="submit" value="Submit">
+    </form>
+</html>

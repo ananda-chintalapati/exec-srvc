@@ -13,7 +13,9 @@
 <builders>
 <hudson.tasks.Shell>
 <command>
-    {{ rally_cmd }}
+   <![CDATA[
+      {{ script }}
+     ]]>
 </command>
 </hudson.tasks.Shell>
 </builders>
