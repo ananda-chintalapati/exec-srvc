@@ -1,0 +1,158 @@
+heat_template_version: 2016-04-08
+
+description: Sample Heat Template to deploy an instance
+
+parameters:
+    key_name:
+      type: string
+      label: Key Name
+      description: key pair name to be used to an instance
+    image_id:
+      type: string
+      label: Image Id
+      description: image to be used to an instance
+    instance_type:
+      type: string
+      label: instance_type
+      description: flavor to be used an instance
+    public_net_id:
+      type: string
+      description: >
+        ID of public network for which floating IP addresses will be allocated
+    private_net_id:
+      type: string
+      description: ID of private network into which servers get deployed
+    private_subnet_id:
+      type: string
+      description: ID of private sub network into which servers get deployed
+
+resources:
+  dns_init:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: ungrouped
+      config: |
+        #!/bin/bash
+        sudo cp /etc/resolv.conf /tmp/resol.conf.bkp
+        sudo rm -rf /etc/resolv.conf
+        sudo echo 'nameserver 8.8.8.8' > /tmp/resolv.conf
+        sudo cp /tmp/resolv.conf /etc/resolv.conf
+
+  ansible_init:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: ungrouped
+      config: |
+        #!/bin/bash
+        sudo apt-get install software-properties-common
+        sudo apt-add-repository ppa:ansible/ansible
+        sudo apt-get update
+        sudo apt-get install ansible
+
+  one_init:
+    type: OS::Heat::CloudConfig
+    properties:
+      cloud_config:
+        write_files:
+        - path: /tmp/install.sh
+          content: |
+            #!/bin/bash
+
+            ROLE_PATH=/opt/css_deploy/roles
+            sudo apt-get install git
+            sudo git clone git clone git@192.168.20.223:root/css_deploy.git /opt
+            if [ ! -d $ROLE_PATH ]; then
+              sudo mkdir -p $ROLE_PATH
+            fi
+            sudo chown -R ubuntu:ubuntu /opt/css_deploy
+            sudo chmod -R 766 $ROLE_PATH
+            sudo cat > $ROLE_PATH/requirements.yml <<EOF
+            ---
+
+            # Docker
+            - src: gorsuch.docker
+              name: docker
+
+            # Kubernetes
+            - src: gantsign.kubernetes
+              name: kubernetes
+
+            # Jenkins
+            - src: binarytemple.jenkins
+              name: jenkins
+
+            # ELK
+            - src: jpnewman.elk-kibana
+              name: elk-kibana
+
+            # InfluxDB
+            - src: mtchavez.influxdb
+              name: influxdb
+
+            # Grafana
+            - src: ansiblebit.grafana
+              name: grafana
+
+            # Netdata
+            - src: leanbit.netdata
+              name: netdata
+
+            # Zabbix
+            - src: mats116.zabbix
+              name: zabbix-server
+
+            # Zabbix-agent
+            - src: maxim-nazarenko.zabbix-agent
+              name: zabbix-agent
+
+            # Nmap
+            - src: ieguiguren.nmap
+              name: nmap
+            EOF
+
+            export ANSIBLE_ROLE_PATH=$ROLE_PATH
+
+            sudo ansible-galaxy install -r $ROLE_PATH/requirements.yml
+
+  two_init:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: ungrouped
+      config: |
+        #!/bin/sh
+        sudo chmod 777 /tmp/install.sh
+        /bin/bash /tmp/install.sh
+
+  server_init:
+    type: OS::Heat::MultipartMime
+    properties:
+      parts:
+      - config: {get_resource: dns_init}
+      - config: {get_resource: ansible_init}
+      - config: {get_resource: one_init}
+      - config: {get_resource: two_init}
+
+  my_instance:
+    type: OS::Nova::Server
+    properties:
+      key_name: { get_param: key_name }
+      image: { get_param: image_id }
+      flavor: { get_param: instance_type}
+      networks:
+        - port: { get_resource: server1_port }
+      user_data_format: RAW
+      user_data:
+        get_resource: server_init
+
+  server1_port:
+    type: OS::Neutron::Port
+    properties:
+      network_id: { get_param: private_net_id }
+      fixed_ips:
+        - subnet_id: { get_param: private_subnet_id }
+
+  server1_floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network_id: { get_param: public_net_id }
+      port_id: { get_resource: server1_port }

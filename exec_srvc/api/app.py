@@ -5,6 +5,8 @@ import jinja2
 from flask import Flask, jsonify, request, render_template
 from service import JenkinsManager as Jenkins
 from service import RallyManager as Rally
+from service import OpenStackServiceManager as OS_Server
+from service import HeatDeployManager as Heat
 
 app = Flask(__name__)
 app.jinja_loader = jinja2.FileSystemLoader('../templates')
@@ -46,7 +48,7 @@ def _build_trigger_job(req_data):
 @app.route('/jenkins/trigger', methods=['POST'])
 def trigger_jenkins():
     print 'Form data %r ' % request.data
-    req_data = request.data
+    req_data = json.loads(request.data)
     job_name = _build_trigger_job(req_data)
     return job_name
 
@@ -119,6 +121,24 @@ def _validate_request(cloud_json, req_data):
         if key not in keys:
             raise Exception("Incomplete request. Missing %s " % key)
     return True
+
+@app.route('/cluster/default', methods=['POST'])
+def trigger_default_hot_cluster():
+    print 'Form data %r ' % request.data
+    req_data = json.loads(request.data)
+    cloud_auth = req_data['cloud_auth']
+    auth_token, url, service_id = get_auth_url_token(cloud_auth, 'heat')
+    heat_client = Heat(url, auth_token, service_id)
+    heat_data = req_data['cluster_info']
+    stack_id = cloud_auth.get('stack_id')
+    stack = heat_client.create_default_stack(heat_data, stack_id)
+    return stack['id']
+
+
+def get_auth_url_token(cloud_auth, service):
+    os_client = OS_Server(cloud_auth['auth_url'], cloud_auth['user'], cloud_auth['passwd'], cloud_auth['tenant'])
+    auth_token, url, service_id = os_client.get_auth_token_service_url(service)
+    return auth_token, url, service_id
 
 
 if __name__ == '__main__':

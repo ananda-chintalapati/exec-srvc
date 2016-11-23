@@ -5,6 +5,9 @@ import json
 import jinja2
 import util
 
+from heatclient.client import Client
+from heatclient import exc as heat_exc
+
 
 class JenkinsManager(object):
 
@@ -207,3 +210,116 @@ class RallyManager(object):
 
     def get_cloud_info(self):
         return self._cloud_req
+
+class OpenStackServiceManager(object):
+
+    def __init__(self, auth_url, user, passwd, tenant):
+        self._auth_url = auth_url
+        self._user = user
+        self._passwd = passwd
+        self._tenant = tenant
+
+    def _get_keystone_resp(self):
+        data = self._build_keystone_payload()
+        headers = {'Content-Type': 'application/json'}
+        url = self._auth_url + '/tokens'
+        resp = requests.post(url, data=json.dumps(data), headers=headers)
+        print 'keystone resp %r ' % resp
+        print 'keyst resp data %r ' % resp.content
+        if resp.ok:
+            return resp
+        return None
+
+    def get_auth_token_service_url(self, ser_req, region='RegionOne'):
+        resp = json.loads(self._get_keystone_resp().content)
+        print 'Keystone respone %r ' % resp
+        token = url = tenant_id = None
+        if resp is not None:
+            token = resp['access']['token']['id']
+            tenant_id = resp['access']['token']['tenant']['id']
+            for service in resp['access']['serviceCatalog']:
+                if service['name'] == ser_req:
+                    print 'endpoints %r ' % service['endpoints']
+                    for url_list in service['endpoints']:
+                        print url_list
+                        if url_list['region'] == region:
+                            url = url_list['publicURL']
+                            break
+        print 'url %r, token %r, tenant_id %r' % (url, token, tenant_id)
+        return token, url, tenant_id
+
+    def _build_keystone_payload(self):
+        data = {"auth": {
+                    "tenantName": self._tenant,
+                    "passwordCredentials": {
+                        "username": self._user,
+                        "password": self._passwd
+                    }
+            }
+        }
+        print 'keystone req data %r ' % data
+        return data
+
+
+class HeatDeployManager(object):
+
+    def __init__(self, hot_url, auth_token, tenant_id):
+        self._hot_url = hot_url
+        self._auth_token = auth_token
+        self._tenant_id = tenant_id
+        self._heat_client = Client('1', endpoint=self._hot_url, token=self._auth_token)
+
+    def create_stack(self, master=1, slave=3, deploy_is_master=True):
+        pass
+
+    def create_default_stack(self, args, stack_id=None):
+        template = self._get_default_hot_template(args)
+        print 'Template %r \n' % template
+        try:
+            response = self._heat_client.stacks.create(stack_name=args['name'], template=template)
+            stack = response['stack']
+        except Exception:
+            print 'Inside except block'
+            response = self._heat_client.stacks.update(stack_id, template=template)
+            print 'Update response %r ' % response
+            return stack_id
+        print 'Heat response %r ' % stack
+        return stack
+
+    def _get_default_hot_template(self, args):
+        with open("../templates/requirements.yml", "r") as myfile:
+            data = myfile.read()
+        cntx = {
+            'key_name': args['key_name'],
+            'image_id': args['image_id'],
+            'public_net_id': args['public_net_id'],
+            'private_net_id': args['private_net_id'],
+            'private_subnet_id': args['private_subnet_id'],
+            'instance_type': args['instance_type'],
+            'galaxy_requirements': data
+        }
+        return jinja2.Environment(
+            loader=jinja2.FileSystemLoader("../templates")
+        ).get_template("hot-cluster.yml").render(cntx)
+
+    def _build_deploy_node_template(self):
+        return jinja2.Environment(
+            loader=jinja2.FileSystemLoader("../templates")
+        ).get_template("hot-deploy.yml").render({
+            'init_script': self._build_init_script()
+        })
+
+    def _build_init_script(self):
+        data = None
+        with open("requirements.yml", "r") as myfile:
+            data = myfile.readlines()
+        return jinja2.Environment(
+            loader=jinja2.FileSystemLoader("../templates")
+        ).get_template("init.sh").render({
+            'ansible_requirements': data
+        })
+
+    def _get_requirement_file(self):
+        return jinja2.Environment(
+            loader=jinja2.FileSystemLoader("../templates")
+        ).get_template("requirements.yml").render()

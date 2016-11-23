@@ -1,0 +1,45 @@
+---
+
+        # Docker Swarm
+        - src: atosatto.docker-swarm
+          name: docker-swarm
+
+        # Docker
+        - src: mongrelion.docker
+          name: docker
+
+        # Kubernetes
+        - src: gantsign.kubernetes
+          name: kubernetes
+
+        # Jenkins
+        - src: binarytemple.jenkins
+          name: jenkins
+
+        # ELK
+        - src: jpnewman.elk-kibana
+          name: elk-kibana
+
+        # InfluxDB
+        - src: mtchavez.influxdb
+          name: influxdb
+
+        # Grafana
+        - src: ansiblebit.grafana
+          name: grafana
+
+        # Netdata
+        - src: leanbit.netdata
+          name: netdata
+
+        # Zabbix
+        - src: mats116.zabbix
+          name: zabbix-server
+
+        # Zabbix-agent
+        - src: maxim-nazarenko.zabbix-agent
+          name: zabbix-agent
+
+        # Nmap
+        - src: ieguiguren.nmap
+          name: nmap

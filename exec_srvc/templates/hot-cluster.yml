@@ -1,0 +1,302 @@
+heat_template_version: 2016-04-08
+
+description: Sample Heat Template to deploy an instance
+
+parameters:
+    key_name:
+      type: string
+      label: Key Name
+      description: key pair name to be used to an instance
+      default: {{ key_name }}
+    image_id:
+      type: string
+      label: Image Id
+      description: image to be used to an instance
+      default: {{ image_id }}
+    instance_type:
+      type: string
+      label: instance_type
+      description: flavor to be used an instance
+      default: {{ instance_type }}
+    public_net_id:
+      type: string
+      description: >
+        ID of public network for which floating IP addresses will be allocated
+      default: {{ public_net_id }}
+    private_net_id:
+      type: string
+      description: ID of private network into which servers get deployed
+      default: {{ private_net_id }}
+    private_subnet_id:
+      type: string
+      description: ID of private sub network into which servers get deployed
+      default: {{ private_subnet_id }}
+
+resources:
+  dns_init:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: ungrouped
+      config: |
+        #!/bin/bash
+        sudo cp /etc/resolv.conf /tmp/resol.conf.bkp
+        sudo rm -rf /etc/resolv.conf
+        sudo echo 'nameserver 8.8.8.8' > /tmp/resolv.conf
+        sudo cp /tmp/resolv.conf /etc/resolv.conf
+
+  python_init:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: ungrouped
+      config: |
+        #!/bin/bash
+        sudo apt-get install python -y
+        sudo apt-get install python-pip -y
+
+  ansible_init:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: ungrouped
+      config: |
+        #!/bin/bash
+        cat <<EOF1 >> /tmp/init_ansible.sh
+        sudo apt-get install software-properties-common
+        sudo apt-add-repository ppa:ansible/ansible -y
+        sudo apt-get update
+        sudo apt-get install ansible -y
+        sudo apt-get install git -y
+        git clone https://github.com/ananda-chintalapati/css_deploy.git /tmp/css_deploy
+        git clone https://github.com/ananda-chintalapati/css_swarm_deploy.git /tmp/css_swarm_deploy
+        EOF1
+
+  ansible_exec:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: ungrouped
+      config: |
+        #!/bin/bash
+        sudo chmod 755 /tmp/init_ansible.sh
+        sudo /bin/bash /tmp/init_ansible.sh
+
+  galaxy_req_file:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: ungrouped
+      config: |
+        #!/bin/bash
+        cat <<EOF4 >> /tmp/requirements.yml
+        {{ galaxy_requirements }}
+        EOF4
+        sudo chmod 755 /tmp/requirements.yml
+
+  ip_init:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: ungrouped
+      config: 
+        str_replace:
+            template: |
+              #!/bin/bash
+              cat <<EOF2 >>/tmp/swarm_inventory
+              $IP1
+              $IP2
+              $IP3
+
+              [docker_engine]
+              $IP1
+              $IP2
+              $IP3
+
+              [docker_swarm_manager]
+              $IP1
+
+              [docker_swarm_worker]
+              $IP2
+              $IP3
+              EOF2
+            params:
+             $IP1: { get_attr: [ server1_floating_ip, floating_ip_address ] }
+             $IP2: { get_attr: [ server2_floating_ip, floating_ip_address ] }
+             $IP3: { get_attr: [ server3_floating_ip, floating_ip_address ] }
+
+  get_pem_key:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: ungrouped
+      config: |
+        #!/bin/bash
+        export SSHPASS=openstack
+        sshpass -e sftp -oBatchMode=no -o StrictHostKeyChecking=no -b - root@192.168.20.208 << !
+          get /root/keys/centos.pem /tmp/centos.pem
+          bye
+        !
+        chmod 400 /tmp/centos.pem
+        sudo chown ubuntu:ubuntu /tmp/centos.pem
+
+  install_galaxy_req:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: ungrouped
+      config: |
+        #!/bin/bash
+        sudo ansible-galaxy install -r /tmp/requirements.yml
+
+  create_cluster_playbook:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: ungrouped
+      config: |
+        #!/bin/bash
+        cat <<EOF3 >> /tmp/playbook.yml
+        - name: Provision Docker Swarm Cluster
+          hosts: all
+          roles:
+            - { role: docker-swarm }
+        EOF3
+        sudo chmod 755 /tmp/playbook.yml
+
+  run_docker_swarm_playbook:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: ungrouped
+      config: |
+        #!/bin/bash
+        cat <<EOF5 >> /tmp/env.sh
+        #!/bin/bash
+        export ANSIBLE_HOST_KEY_CHECKING=False
+        EOF5
+        sudo chmod 755 /tmp/env.sh
+        source /tmp/env.sh
+        ansible-playbook -i /tmp/swarm_inventory /tmp/playbook.yml --private-key /tmp/centos.pem -vvvv > /tmp/docker-swarm.log 2>&1
+
+  run_swarm_playbook:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: ungrouped
+      config: |
+        #!/bin/bash
+        source /tmp/env.sh
+        ansible-playbook -i /tmp/swarm_inventory /tmp/css_swarm_deploy/main.yml --private-key /tmp/centos.pem -vvvv > /tmp/docker-service.log 2>&1
+
+  server_init:
+    type: OS::Heat::MultipartMime
+    properties:
+      parts:
+      - config: {get_resource: dns_init}
+      - config: {get_resource: python_init}
+      - config: {get_resource: ansible_init}
+      - config: {get_resource: ansible_exec}
+      - config: {get_resource: ip_init}
+      - config: {get_resource: get_pem_key}
+      - config: {get_resource: galaxy_req_file}
+      - config: {get_resource: install_galaxy_req}
+      - config: {get_resource: create_cluster_playbook}
+      - config: {get_resource: run_docker_swarm_playbook}
+      - config: {get_resource: run_swarm_playbook}
+
+  worker_init:
+    type: OS::Heat::MultipartMime
+    properties:
+      parts:
+      - config: {get_resource: dns_init}
+      - config: {get_resource: python_init}
+
+  node-1:
+    type: OS::Nova::Server
+    properties:
+      key_name: { get_param: key_name }
+      image: { get_param: image_id }
+      flavor: { get_param: instance_type}
+      networks:
+        - port: { get_resource: server1_port }
+      user_data_format: RAW
+      user_data:
+        get_resource: server_init
+
+  server1_port:
+    type: OS::Neutron::Port
+    properties:
+      network_id: { get_param: private_net_id }
+      fixed_ips:
+        - subnet_id: { get_param: private_subnet_id }
+
+  server1_floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network_id: { get_param: public_net_id }
+      port_id: { get_resource: server1_port }
+
+  node-2:
+    type: OS::Nova::Server
+    properties:
+      key_name: { get_param: key_name }
+      image: { get_param: image_id }
+      flavor: { get_param: instance_type}
+      networks:
+        - port: { get_resource: server2_port }
+      user_data_format: RAW
+      user_data:
+        get_resource: worker_init
+
+  server2_port:
+    type: OS::Neutron::Port
+    properties:
+      network_id: { get_param: private_net_id }
+      fixed_ips:
+        - subnet_id: { get_param: private_subnet_id }
+
+  server2_floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network_id: { get_param: public_net_id }
+      port_id: { get_resource: server2_port }
+
+  node-3:
+    type: OS::Nova::Server
+    properties:
+      key_name: { get_param: key_name }
+      image: { get_param: image_id }
+      flavor: { get_param: instance_type}
+      networks:
+        - port: { get_resource: server3_port }
+      user_data_format: RAW
+      user_data:
+        get_resource: worker_init
+
+  server3_port:
+    type: OS::Neutron::Port
+    properties:
+      network_id: { get_param: private_net_id }
+      fixed_ips:
+        - subnet_id: { get_param: private_subnet_id }
+
+  server3_floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network_id: { get_param: public_net_id }
+      port_id: { get_resource: server3_port }
+
+outputs:
+  server1_private_ip:
+    description: IP address of server1 in private network
+    value: { get_attr: [ node-1, first_address ] }
+
+  server2_private_ip:
+    description: IP address of server1 in private network
+    value: { get_attr: [ node-2, first_address ] }
+
+  server3_private_ip:
+    description: IP address of server1 in private network
+    value: { get_attr: [ node-3, first_address ] }
+
+  node-1_ip:
+    description: fixed ip assigned to the server
+    value: { get_attr: [ server1_floating_ip, floating_ip_address ] }
+
+  node-2_ip:
+    description: fixed ip assigned to the server
+    value: { get_attr: [ server2_floating_ip, floating_ip_address ] }
+
+  node-3_ip:
+    description: fixed ip assigned to the server
+    value: { get_attr: [ server3_floating_ip, floating_ip_address ] }
